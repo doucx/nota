@@ -40,25 +40,9 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
           <span className="font-bold text-slate-800">{points}</span>
         </div>
 
-        <p className="text-xs text-slate-400 mt-2 mb-6">
+        <p className="text-xs text-slate-400 mt-2 mb-8">
           综合得分计算方式为：答对题数乘以准确率百分比。
         </p>
-
-        <div className="w-full h-40 mb-8">
-          <svg className="w-full h-full" viewBox="0 0 300 150">
-            <title>练习得分走势图</title>
-            <line x1="0" y1="30" x2="300" y2="30" stroke="#f1f5f9" strokeWidth="1.5" />
-            <line x1="0" y1="80" x2="300" y2="80" stroke="#f1f5f9" strokeWidth="1.5" />
-            <line x1="0" y1="130" x2="300" y2="130" stroke="#f1f5f9" strokeWidth="1.5" />
-            <path
-              d="M 20,130 Q 70,20 120,60 T 220,40 T 280,70"
-              fill="none"
-              stroke="#ff5252"
-              strokeWidth="3.5"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
 
         <div className="flex gap-4">
           <button
