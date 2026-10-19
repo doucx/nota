@@ -58,7 +58,7 @@ export const StaffView: React.FC<StaffViewProps> = ({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
-      <svg className="w-full max-w-[640px] h-[190px]" viewBox="0 0 600 150">
+      <svg className="w-full max-w-[640px] h-[250px]" viewBox="0 -80 600 280">
         <title>五线谱视奏画板</title>
         {/* 5 根五线谱横线 */}
         {STAFF_LINES.map((lineY) => (

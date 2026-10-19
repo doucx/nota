@@ -3,6 +3,246 @@ import type { ClefType, NamingScheme, TrainerOptions } from '@/types';
 import { formatStep } from '@/utils/pitch';
 import { ArrowLeft } from 'lucide-react';
 import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+interface DoubleRangeSliderProps {
+  minStep: number;
+  maxStep: number;
+  limitMin: number;
+  limitMax: number;
+  disabled?: boolean;
+  onChange: (min: number, max: number) => void;
+}
+
+const DoubleRangeSlider: React.FC<DoubleRangeSliderProps> = ({
+  minStep,
+  maxStep,
+  limitMin,
+  limitMax,
+  disabled = false,
+  onChange,
+}) => {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const minThumbRef = useRef<HTMLButtonElement>(null);
+  const maxThumbRef = useRef<HTMLButtonElement>(null);
+  const [activeThumb, setActiveThumb] = useState<'min' | 'max' | null>(null);
+
+  const isKeyboardNavRef = useRef<boolean>(false);
+  const releaseTimerRef = useRef<number | null>(null);
+
+  const dragStateRef = useRef<{
+    mode: 'min' | 'max' | 'pending';
+    startX: number;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (releaseTimerRef.current !== null) {
+        clearTimeout(releaseTimerRef.current);
+      }
+    };
+  }, []);
+
+  const total = limitMax - limitMin;
+  const leftPercent = total > 0 ? ((minStep - limitMin) / total) * 100 : 0;
+  const rightPercent = total > 0 ? ((maxStep - limitMin) / total) * 100 : 100;
+  const widthPercent = Math.max(0, rightPercent - leftPercent);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    if (releaseTimerRef.current !== null) {
+      clearTimeout(releaseTimerRef.current);
+      releaseTimerRef.current = null;
+    }
+    isKeyboardNavRef.current = false;
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    const clientX = e.clientX;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const clickedStep = Math.round(limitMin + ratio * total);
+
+    if (minStep === maxStep) {
+      dragStateRef.current = {
+        mode: 'pending',
+        startX: clientX,
+      };
+      setActiveThumb(null);
+    } else {
+      const distMin = Math.abs(clickedStep - minStep);
+      const distMax = Math.abs(clickedStep - maxStep);
+
+      if (distMin < distMax) {
+        dragStateRef.current = { mode: 'min', startX: clientX };
+        setActiveThumb('min');
+        onChange(Math.min(clickedStep, maxStep), maxStep);
+      } else {
+        dragStateRef.current = { mode: 'max', startX: clientX };
+        setActiveThumb('max');
+        onChange(minStep, Math.max(clickedStep, minStep));
+      }
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current;
+    if (!state) return;
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const currentStep = Math.round(limitMin + ratio * total);
+
+    if (state.mode === 'pending') {
+      const deltaX = e.clientX - state.startX;
+      if (Math.abs(deltaX) < 2) return;
+      if (deltaX < 0) {
+        state.mode = 'min';
+        setActiveThumb('min');
+      } else {
+        state.mode = 'max';
+        setActiveThumb('max');
+      }
+    }
+
+    if (state.mode === 'min') {
+      const newMin = Math.max(limitMin, Math.min(currentStep, maxStep));
+      onChange(newMin, maxStep);
+    } else if (state.mode === 'max') {
+      const newMax = Math.min(limitMax, Math.max(currentStep, minStep));
+      onChange(minStep, newMax);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current) {
+      dragStateRef.current = null;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+
+      // 松开手势后，延迟 1000ms 自动取消高亮（除非处于键盘导航）
+      if (releaseTimerRef.current !== null) {
+        clearTimeout(releaseTimerRef.current);
+      }
+      releaseTimerRef.current = window.setTimeout(() => {
+        if (!isKeyboardNavRef.current) {
+          setActiveThumb(null);
+        }
+      }, 1000);
+    }
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      className={`relative w-full h-8 flex items-center select-none touch-none cursor-pointer ${
+        disabled ? 'opacity-40 pointer-events-none' : ''
+      }`}
+    >
+      {/* 背景灰底轨道 */}
+      <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-2 bg-slate-200 rounded-lg pointer-events-none" />
+
+      {/* 双圆之间的高亮轨道 */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 h-2 bg-brand-blue rounded-lg pointer-events-none"
+        style={{
+          left: `${leftPercent}%`,
+          width: `${widthPercent}%`,
+        }}
+      />
+
+      {/* 左圆滑块 (最低音) */}
+      <button
+        ref={minThumbRef}
+        type="button"
+        aria-label="最低音"
+        aria-valuenow={minStep}
+        aria-valuemin={limitMin}
+        aria-valuemax={maxStep}
+        onFocus={() => {
+          if (isKeyboardNavRef.current) {
+            setActiveThumb('min');
+          }
+        }}
+        onBlur={() => {
+          isKeyboardNavRef.current = false;
+          setActiveThumb((prev) => (prev === 'min' ? null : prev));
+        }}
+        onKeyDown={(e) => {
+          isKeyboardNavRef.current = true;
+          if (releaseTimerRef.current !== null) {
+            clearTimeout(releaseTimerRef.current);
+            releaseTimerRef.current = null;
+          }
+          setActiveThumb('min');
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            onChange(Math.max(limitMin, minStep - 1), maxStep);
+          } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            onChange(Math.min(maxStep, minStep + 1), maxStep);
+          }
+        }}
+        className={`absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-brand-blue border-2 border-white cursor-pointer outline-none ${
+          activeThumb === 'min'
+            ? 'z-20 scale-110 shadow-lg ring-4 ring-brand-blue/30'
+            : 'z-10 scale-100 shadow-md focus-visible:z-20 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-brand-blue/30'
+        }`}
+        style={{ left: `calc(${leftPercent}% - 10px)` }}
+      />
+
+      {/* 右圆滑块 (最高音) */}
+      <button
+        ref={maxThumbRef}
+        type="button"
+        aria-label="最高音"
+        aria-valuenow={maxStep}
+        aria-valuemin={minStep}
+        aria-valuemax={limitMax}
+        onFocus={() => {
+          if (isKeyboardNavRef.current) {
+            setActiveThumb('max');
+          }
+        }}
+        onBlur={() => {
+          isKeyboardNavRef.current = false;
+          setActiveThumb((prev) => (prev === 'max' ? null : prev));
+        }}
+        onKeyDown={(e) => {
+          isKeyboardNavRef.current = true;
+          if (releaseTimerRef.current !== null) {
+            clearTimeout(releaseTimerRef.current);
+            releaseTimerRef.current = null;
+          }
+          setActiveThumb('max');
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            onChange(minStep, Math.max(minStep, maxStep - 1));
+          } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            onChange(minStep, Math.min(limitMax, maxStep + 1));
+          }
+        }}
+        className={`absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-brand-blue border-2 border-white cursor-pointer outline-none ${
+          activeThumb === 'max'
+            ? 'z-20 scale-110 shadow-lg ring-4 ring-brand-blue/30'
+            : 'z-10 scale-100 shadow-md focus-visible:z-20 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-brand-blue/30'
+        }`}
+        style={{ left: `calc(${rightPercent}% - 10px)` }}
+      />
+    </div>
+  );
+};
 
 interface OptionsModalProps {
   isOpen: boolean;
@@ -40,7 +280,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
   };
 
   /**
-   * 单轨道双圆点滑块：在同一根轨道上呈现两个圆，两圆之间高亮填充
+   * 单轨道双圆点滑块：支持重叠时向左/向右分别拖开
    */
   const renderDoubleSlider = (
     clef: ClefType,
@@ -50,97 +290,15 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
     limitMax: number,
     disabled: boolean,
   ) => {
-    const total = limitMax - limitMin;
-    const leftPercent = total > 0 ? ((minStep - limitMin) / total) * 100 : 0;
-    const rightPercent = total > 0 ? ((maxStep - limitMin) / total) * 100 : 100;
-    const widthPercent = Math.max(0, rightPercent - leftPercent);
-
     return (
-      <div
-        className={`relative w-full h-8 flex items-center select-none ${
-          disabled ? 'opacity-40 pointer-events-none' : ''
-        }`}
-      >
-        {/* 背景灰底轨道 */}
-        <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-2 bg-slate-200 rounded-lg pointer-events-none" />
-
-        {/* 双圆之间的高亮轨道 (零动画延迟，百分百实时跟手) */}
-        <div
-          className="absolute top-1/2 -translate-y-1/2 h-2 bg-brand-blue rounded-lg pointer-events-none"
-          style={{
-            left: `${leftPercent}%`,
-            width: `${widthPercent}%`,
-          }}
-        />
-
-        {/* 左圆滑块 (最低音) */}
-        <input
-          type="range"
-          min={limitMin}
-          max={limitMax}
-          step={1}
-          value={minStep}
-          aria-label="最低音"
-          onChange={(e) => {
-            const val = Math.min(Number(e.target.value), maxStep);
-            handleRangeChange(clef, val, maxStep);
-          }}
-          className="absolute top-1/2 -translate-y-1/2 left-0 w-full h-5 appearance-none bg-transparent pointer-events-none m-0 z-20 outline-none
-            [&::-webkit-slider-thumb]:pointer-events-auto
-            [&::-webkit-slider-thumb]:appearance-none
-            [&::-webkit-slider-thumb]:w-5
-            [&::-webkit-slider-thumb]:h-5
-            [&::-webkit-slider-thumb]:rounded-full
-            [&::-webkit-slider-thumb]:bg-brand-blue
-            [&::-webkit-slider-thumb]:border-2
-            [&::-webkit-slider-thumb]:border-white
-            [&::-webkit-slider-thumb]:shadow-md
-            [&::-webkit-slider-thumb]:cursor-pointer
-            [&::-moz-range-thumb]:pointer-events-auto
-            [&::-moz-range-thumb]:w-5
-            [&::-moz-range-thumb]:h-5
-            [&::-moz-range-thumb]:rounded-full
-            [&::-moz-range-thumb]:bg-brand-blue
-            [&::-moz-range-thumb]:border-2
-            [&::-moz-range-thumb]:border-white
-            [&::-moz-range-thumb]:shadow-md
-            [&::-moz-range-thumb]:cursor-pointer"
-        />
-
-        {/* 右圆滑块 (最高音) */}
-        <input
-          type="range"
-          min={limitMin}
-          max={limitMax}
-          step={1}
-          value={maxStep}
-          aria-label="最高音"
-          onChange={(e) => {
-            const val = Math.max(Number(e.target.value), minStep);
-            handleRangeChange(clef, minStep, val);
-          }}
-          className="absolute top-1/2 -translate-y-1/2 left-0 w-full h-5 appearance-none bg-transparent pointer-events-none m-0 z-20 outline-none
-            [&::-webkit-slider-thumb]:pointer-events-auto
-            [&::-webkit-slider-thumb]:appearance-none
-            [&::-webkit-slider-thumb]:w-5
-            [&::-webkit-slider-thumb]:h-5
-            [&::-webkit-slider-thumb]:rounded-full
-            [&::-webkit-slider-thumb]:bg-brand-blue
-            [&::-webkit-slider-thumb]:border-2
-            [&::-webkit-slider-thumb]:border-white
-            [&::-webkit-slider-thumb]:shadow-md
-            [&::-webkit-slider-thumb]:cursor-pointer
-            [&::-moz-range-thumb]:pointer-events-auto
-            [&::-moz-range-thumb]:w-5
-            [&::-moz-range-thumb]:h-5
-            [&::-moz-range-thumb]:rounded-full
-            [&::-moz-range-thumb]:bg-brand-blue
-            [&::-moz-range-thumb]:border-2
-            [&::-moz-range-thumb]:border-white
-            [&::-moz-range-thumb]:shadow-md
-            [&::-moz-range-thumb]:cursor-pointer"
-        />
-      </div>
+      <DoubleRangeSlider
+        minStep={minStep}
+        maxStep={maxStep}
+        limitMin={limitMin}
+        limitMax={limitMax}
+        disabled={disabled}
+        onChange={(min, max) => handleRangeChange(clef, min, max)}
+      />
     );
   };
 
