@@ -7,13 +7,20 @@ interface StaffViewProps {
   currentNote: NoteItem | null;
   ghostNote: GhostNoteItem | null;
   deviationText: string;
+  isSuccess?: boolean;
 }
 
-export const StaffView: React.FC<StaffViewProps> = ({ currentNote, ghostNote, deviationText }) => {
+export const StaffView: React.FC<StaffViewProps> = ({
+  currentNote,
+  ghostNote,
+  deviationText,
+  isSuccess = false,
+}) => {
   if (!currentNote) return null;
 
   const clef = currentNote.clef;
   const targetY = getStaffY(clef, currentNote.step);
+  const targetNoteColor = isSuccess ? '#10b981' : '#0f172a';
 
   const renderLedgerLines = (y: number, x: number, color: string) => {
     const lines = [];
@@ -72,9 +79,15 @@ export const StaffView: React.FC<StaffViewProps> = ({ currentNote, ghostNote, de
         </text>
 
         {/* 目标音符 (x=330) */}
-        {renderLedgerLines(targetY, 330, '#0f172a')}
+        {renderLedgerLines(targetY, 330, targetNoteColor)}
         {currentNote.accidental && (
-          <text x={330 - 32} y={targetY + 7} fontSize="26px" fontWeight="bold" fill="#0f172a">
+          <text
+            x={330 - 32}
+            y={targetY + 7}
+            fontSize="26px"
+            fontWeight="bold"
+            fill={targetNoteColor}
+          >
             {currentNote.accidental}
           </text>
         )}
@@ -84,19 +97,19 @@ export const StaffView: React.FC<StaffViewProps> = ({ currentNote, ghostNote, de
           rx="12"
           ry="8.5"
           transform={`rotate(-20 330 ${targetY})`}
-          fill="#0f172a"
+          fill={targetNoteColor}
         />
 
-        {/* 错误按键音符 (x=410, 红色) */}
+        {/* 错误按键音符 (x=330, 正上方/正下方红色) */}
         {ghostNote &&
           (() => {
             const ghostY = getStaffY(clef, ghostNote.step);
             return (
               <g>
-                {renderLedgerLines(ghostY, 410, '#ef4444')}
+                {renderLedgerLines(ghostY, 330, '#ef4444')}
                 {ghostNote.accidental && (
                   <text
-                    x={410 - 32}
+                    x={330 - 32}
                     y={ghostY + 7}
                     fontSize="26px"
                     fontWeight="bold"
@@ -106,11 +119,11 @@ export const StaffView: React.FC<StaffViewProps> = ({ currentNote, ghostNote, de
                   </text>
                 )}
                 <ellipse
-                  cx="410"
+                  cx="330"
                   cy={ghostY}
                   rx="12"
                   ry="8.5"
-                  transform={`rotate(-20 410 ${ghostY})`}
+                  transform={`rotate(-20 330 ${ghostY})`}
                   fill="#ef4444"
                   opacity="0.9"
                 />

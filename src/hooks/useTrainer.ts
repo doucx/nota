@@ -2,7 +2,14 @@ import { soundEngine } from '@/audio/synth';
 import { CLEF_CONFIGS } from '@/constants/clefs';
 import { KEYBOARD_MAP } from '@/constants/keys';
 import { STEP_TO_PC } from '@/constants/notation';
-import type { AccidentalMode, ClefType, GhostNoteItem, NoteItem, TrainerOptions } from '@/types';
+import type {
+  AccidentalMode,
+  ClefType,
+  GhostNoteItem,
+  KeyFeedback,
+  NoteItem,
+  TrainerOptions,
+} from '@/types';
 import { getClosestStepForPc } from '@/utils/pitch';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -13,6 +20,8 @@ export function useTrainer(
 ) {
   const [currentNote, setCurrentNote] = useState<NoteItem | null>(null);
   const [ghostNote, setGhostNote] = useState<GhostNoteItem | null>(null);
+  const [keyFeedback, setKeyFeedback] = useState<KeyFeedback | null>(null);
+  const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [deviationText, setDeviationText] = useState<string>('');
   const [accidentalMode, setAccidentalMode] = useState<AccidentalMode>('sharp');
   const [score, setScore] = useState<number>(0);
@@ -42,14 +51,18 @@ export function useTrainer(
   // 生成下一题
   const generateQuestion = useCallback(() => {
     setIsLocked(false);
+    setIsSuccess(false);
     setGhostNote(null);
+    setKeyFeedback(null);
     setDeviationText('');
 
     const activeClefs: ClefType[] = options.clefs.length > 0 ? options.clefs : ['treble'];
     const chosenClefName = activeClefs[Math.floor(Math.random() * activeClefs.length)];
     const clef = CLEF_CONFIGS[chosenClefName];
 
-    const [min, max] = clef.range;
+    // 优先采用用户自定义的音域范围，若未定义则回退到谱表配置的默认范围
+    const configuredRange = options.ranges?.[chosenClefName];
+    const [min, max] = configuredRange ?? clef.range;
     let step = 0;
     let pc = 0;
     let accidental: '♯' | '♭' | null = null;
@@ -131,7 +144,7 @@ export function useTrainer(
       accidental,
       midiPitch,
     });
-  }, [options.clefs, options.allowAccidentals, options.accidentalsOnly]);
+  }, [options.clefs, options.ranges, options.allowAccidentals, options.accidentalsOnly]);
 
   // 重置训练场
   const resetTrainer = useCallback(() => {
@@ -139,6 +152,8 @@ export function useTrainer(
     setScore(0);
     setAttempts(0);
     setTimeLeft(options.duration);
+    setIsSuccess(false);
+    setKeyFeedback(null);
     generateQuestion();
 
     if (options.duration > 0) {
@@ -178,7 +193,17 @@ export function useTrainer(
       if (isCorrect) {
         setScore((s) => s + 1);
         soundEngine.playPitch(currentNote.midiPitch, options.sound);
-        generateQuestion();
+        setIsLocked(true);
+        setIsSuccess(true);
+        setKeyFeedback({
+          correctPc: currentNote.pc,
+          wrongPc: null,
+        });
+
+        // 答对时给 180ms 的绿色视觉确认反馈后切入下一题
+        delayTimerRef.current = window.setTimeout(() => {
+          generateQuestion();
+        }, 180);
       } else {
         setIsLocked(true);
         soundEngine.playError(options.sound);
@@ -196,22 +221,36 @@ export function useTrainer(
           accidental: errorAccidental,
         });
 
+        setKeyFeedback({
+          correctPc: currentNote.pc,
+          wrongPc: pressedPc,
+        });
+
         const diff = userStep - currentNote.step;
         if (diff > 0) {
-          setDeviationText(`偏高 ${Math.abs(diff)} 度 (右侧红色为您所按)`);
+          setDeviationText(`偏高 ${Math.abs(diff)} 度 (红色为您所按)`);
         } else if (diff < 0) {
-          setDeviationText(`偏低 ${Math.abs(diff)} 度 (右侧红色为您所按)`);
+          setDeviationText(`偏低 ${Math.abs(diff)} 度 (红色为您所按)`);
         } else {
           setDeviationText('音位正确，但升降半音有误');
         }
 
-        // 暂停 500ms 后自动切换下一题
+        // 依据配置的 errorDelay 进行等待后切换下一题
+        const waitTime = options.errorDelay !== undefined ? options.errorDelay : 500;
         delayTimerRef.current = window.setTimeout(() => {
           generateQuestion();
-        }, 500);
+        }, waitTime);
       }
     },
-    [isActive, isLocked, currentNote, options.sound, accidentalMode, generateQuestion],
+    [
+      isActive,
+      isLocked,
+      currentNote,
+      options.sound,
+      options.errorDelay,
+      accidentalMode,
+      generateQuestion,
+    ],
   );
 
   // 物理键盘监听（仅在活跃状态下绑定）
@@ -231,6 +270,8 @@ export function useTrainer(
   return {
     currentNote,
     ghostNote,
+    keyFeedback,
+    isSuccess,
     deviationText,
     accidentalMode,
     score,

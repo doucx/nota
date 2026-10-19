@@ -27,6 +27,11 @@ export interface GhostNoteItem {
   accidental: '♯' | '♭' | null;
 }
 
+export interface KeyFeedback {
+  correctPc: number | null;
+  wrongPc: number | null;
+}
+
 export interface TrainerOptions {
   clefs: ClefType[];
   duration: number; // 0 表示无限制，单位秒
@@ -34,4 +39,6 @@ export interface TrainerOptions {
   allowAccidentals: boolean;
   accidentalsOnly: boolean;
   sound: boolean;
+  errorDelay: number; // 出错等待时间（毫秒，0 ~ 2000）
+  ranges: Record<ClefType, [number, number]>; // 各谱表自定义音域 [minStep, maxStep]
 }

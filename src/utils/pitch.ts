@@ -1,5 +1,24 @@
-import { STEP_TO_PC } from '@/constants/notation';
-import type { ClefConfig } from '@/types';
+import { NAMING_TABLES, STEP_TO_PC } from '@/constants/notation';
+import type { ClefConfig, NamingScheme } from '@/types';
+
+/**
+ * 将 diatonic step 转换为自然音名索引 (0=C, 6=B) 与八度编号
+ * step = 0 对应 C4 (Do4)
+ */
+export function stepToDiatonic(step: number): { index: number; octave: number } {
+  const octave = 4 + Math.floor(step / 7);
+  const index = ((step % 7) + 7) % 7;
+  return { index, octave };
+}
+
+/**
+ * 根据用户的记谱偏好 (naming) 将 step 格式化为对应的音名/唱名 (如 Fa3、F3)
+ */
+export function formatStep(step: number, naming: NamingScheme): string {
+  const { index, octave } = stepToDiatonic(step);
+  const noteName = NAMING_TABLES[naming].natural[index];
+  return `${noteName}${octave}`;
+}
 
 /**
  * 计算五线谱对应 Y 轴像素位置

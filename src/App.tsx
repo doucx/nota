@@ -5,6 +5,7 @@ import { StaffView } from '@/components/StaffView';
 import { StartScreen } from '@/components/StartScreen';
 import { StatsBar } from '@/components/StatsBar';
 import { SummaryModal } from '@/components/SummaryModal';
+import { DEFAULT_CLEF_RANGES } from '@/constants/clefs';
 import { useTrainer } from '@/hooks/useTrainer';
 import type { TrainerOptions } from '@/types';
 import type React from 'react';
@@ -19,6 +20,8 @@ const DEFAULT_OPTIONS: TrainerOptions = {
   allowAccidentals: true,
   accidentalsOnly: false,
   sound: true,
+  errorDelay: 500,
+  ranges: DEFAULT_CLEF_RANGES,
 };
 
 export const App: React.FC = () => {
@@ -37,6 +40,8 @@ export const App: React.FC = () => {
   const {
     currentNote,
     ghostNote,
+    keyFeedback,
+    isSuccess,
     deviationText,
     accidentalMode,
     score,
@@ -80,12 +85,14 @@ export const App: React.FC = () => {
               currentNote={currentNote}
               ghostNote={ghostNote}
               deviationText={deviationText}
+              isSuccess={isSuccess}
             />
 
             <Keyboard
               naming={options.naming}
               accidentalMode={accidentalMode}
               allowAccidentals={options.allowAccidentals}
+              keyFeedback={keyFeedback}
               onPress={handleInput}
             />
           </>
