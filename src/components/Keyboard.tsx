@@ -81,7 +81,9 @@ export const Keyboard: React.FC<KeyboardProps> = ({
                     className={`flex-1 rounded-2xl font-bold flex flex-col items-center justify-center ${btnClass}`}
                   >
                     <span className="text-base">{item.label}</span>
-                    <span className={`text-[10px] font-semibold px-1 rounded mt-0.5 ${badgeClass}`}>
+                    <span
+                      className={`text-[10px] font-semibold px-1 rounded mt-0.5 hidden sm:inline-block ${badgeClass}`}
+                    >
                       {item.key}
                     </span>
                   </button>
