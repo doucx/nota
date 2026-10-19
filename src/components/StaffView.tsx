@@ -22,7 +22,7 @@ export const StaffView: React.FC<StaffViewProps> = ({
   const targetY = getStaffY(clef, currentNote.step);
   const targetNoteColor = isSuccess ? '#10b981' : '#0f172a';
 
-  const renderLedgerLines = (y: number, x: number, color: string) => {
+  const renderLedgerLines = (y: number, x: number) => {
     const lines = [];
     if (y >= 114) {
       for (let ly = 114; ly <= y + 1; ly += 16) {
@@ -33,7 +33,7 @@ export const StaffView: React.FC<StaffViewProps> = ({
             x2={x + 18}
             y1={ly}
             y2={ly}
-            stroke={color}
+            stroke="#334155"
             strokeWidth="1.8"
           />,
         );
@@ -47,7 +47,7 @@ export const StaffView: React.FC<StaffViewProps> = ({
             x2={x + 18}
             y1={ly}
             y2={ly}
-            stroke={color}
+            stroke="#334155"
             strokeWidth="1.8"
           />,
         );
@@ -79,7 +79,7 @@ export const StaffView: React.FC<StaffViewProps> = ({
         </text>
 
         {/* 目标音符 (x=330) */}
-        {renderLedgerLines(targetY, 330, targetNoteColor)}
+        {renderLedgerLines(targetY, 330)}
         {currentNote.accidental && (
           <text
             x={330 - 32}
@@ -106,7 +106,7 @@ export const StaffView: React.FC<StaffViewProps> = ({
             const ghostY = getStaffY(clef, ghostNote.step);
             return (
               <g>
-                {renderLedgerLines(ghostY, 330, '#ef4444')}
+                {renderLedgerLines(ghostY, 330)}
                 {ghostNote.accidental && (
                   <text
                     x={330 - 32}
