@@ -5,7 +5,7 @@ import { StaffView } from '@/components/StaffView';
 import { StartScreen } from '@/components/StartScreen';
 import { StatsBar } from '@/components/StatsBar';
 import { SummaryModal } from '@/components/SummaryModal';
-import { DEFAULT_CLEF_RANGES } from '@/constants/clefs';
+import { DEFAULT_OPTIONS, loadSavedOptions, saveOptions } from '@/constants/options';
 import { useTrainer } from '@/hooks/useTrainer';
 import type { TrainerOptions } from '@/types';
 import type React from 'react';
@@ -13,20 +13,9 @@ import { useCallback, useState } from 'react';
 
 type ScreenMode = 'start' | 'training';
 
-const DEFAULT_OPTIONS: TrainerOptions = {
-  clefs: ['treble', 'bass'],
-  duration: 60,
-  naming: 'solfege-ti',
-  allowAccidentals: true,
-  accidentalsOnly: false,
-  sound: true,
-  errorDelay: 500,
-  ranges: DEFAULT_CLEF_RANGES,
-};
-
 export const App: React.FC = () => {
   const [screenMode, setScreenMode] = useState<ScreenMode>('start');
-  const [options, setOptions] = useState<TrainerOptions>(DEFAULT_OPTIONS);
+  const [options, setOptions] = useState<TrainerOptions>(() => loadSavedOptions());
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 
@@ -63,6 +52,16 @@ export const App: React.FC = () => {
   const handleRestart = () => {
     setIsSummaryOpen(false);
     resetTrainer();
+  };
+
+  const handleChangeOptions = (newOptions: TrainerOptions) => {
+    setOptions(newOptions);
+    saveOptions(newOptions);
+  };
+
+  const handleResetOptions = () => {
+    setOptions(DEFAULT_OPTIONS);
+    saveOptions(DEFAULT_OPTIONS);
   };
 
   return (
@@ -102,7 +101,8 @@ export const App: React.FC = () => {
         <OptionsModal
           isOpen={isOptionsOpen}
           options={options}
-          onChangeOptions={setOptions}
+          onChangeOptions={handleChangeOptions}
+          onResetOptions={handleResetOptions}
           onClose={() => setIsOptionsOpen(false)}
         />
 

@@ -1,7 +1,7 @@
 import { CLEF_RANGE_DEFINITIONS, DEFAULT_CLEF_RANGES } from '@/constants/clefs';
 import type { ClefType, NamingScheme, TrainerOptions } from '@/types';
 import { formatStep } from '@/utils/pitch';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, RotateCcw } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -248,6 +248,7 @@ interface OptionsModalProps {
   isOpen: boolean;
   options: TrainerOptions;
   onChangeOptions: (opts: TrainerOptions) => void;
+  onResetOptions: () => void;
   onClose: () => void;
 }
 
@@ -255,6 +256,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
   isOpen,
   options,
   onChangeOptions,
+  onResetOptions,
   onClose,
 }) => {
   if (!isOpen) return null;
@@ -314,7 +316,15 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
           <ArrowLeft className="w-5 h-5" />
         </button>
         <h2 className="text-lg font-bold">选项设置</h2>
-        <div className="w-10" />
+        <button
+          type="button"
+          onClick={onResetOptions}
+          title="恢复默认设置"
+          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/30 transition-colors flex items-center gap-1 text-white"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>重置</span>
+        </button>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 max-w-xl w-full mx-auto flex flex-col gap-6">
