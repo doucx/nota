@@ -3,19 +3,17 @@ import type React from 'react';
 interface StatsBarProps {
   timeLeft: number;
   duration: number;
-  score: number;
-  attempts: number;
+  correct: number;
+  wrong: number;
 }
 
-export const StatsBar: React.FC<StatsBarProps> = ({ timeLeft, duration, score, attempts }) => {
+export const StatsBar: React.FC<StatsBarProps> = ({ timeLeft, duration, correct, wrong }) => {
   const formatTime = () => {
     if (duration === 0) return '∞';
     const m = String(Math.floor(timeLeft / 60)).padStart(2, '0');
     const s = String(timeLeft % 60).padStart(2, '0');
     return `${m}:${s}`;
   };
-
-  const accuracy = attempts > 0 ? `${Math.round((score / attempts) * 100)}%` : '-';
 
   return (
     <div className="flex justify-around max-w-xl mx-auto w-full pt-4 pb-1 text-center">
@@ -24,12 +22,12 @@ export const StatsBar: React.FC<StatsBarProps> = ({ timeLeft, duration, score, a
         <div className="text-2xl font-bold text-slate-800 font-mono">{formatTime()}</div>
       </div>
       <div>
-        <div className="text-xs font-medium text-slate-400 mb-0.5">得分</div>
-        <div className="text-2xl font-bold text-slate-800 font-mono">{score}</div>
+        <div className="text-xs font-medium text-slate-400 mb-0.5">本轮正确</div>
+        <div className="text-2xl font-bold text-emerald-600 font-mono">{correct}</div>
       </div>
       <div>
-        <div className="text-xs font-medium text-slate-400 mb-0.5">准确率</div>
-        <div className="text-2xl font-bold text-slate-800 font-mono">{accuracy}</div>
+        <div className="text-xs font-medium text-slate-400 mb-0.5">本轮失误</div>
+        <div className="text-2xl font-bold text-rose-500 font-mono">{wrong}</div>
       </div>
     </div>
   );

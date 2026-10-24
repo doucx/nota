@@ -9,3 +9,9 @@ body,
   margin: 0;
   padding: 0;
 }
+
+/* 修正移动端浏览器地址栏伸缩导致的 vh 溢出，避免训练区整体上移 */
+body,
+#root {
+  height: 100dvh;
+}

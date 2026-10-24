@@ -1,12 +1,17 @@
-import { Play, Settings } from 'lucide-react';
+import { BarChart3, Play, Settings } from 'lucide-react';
 import type React from 'react';
 
 interface StartScreenProps {
   onStart: () => void;
   onOpenOptions: () => void;
+  onOpenProfile: () => void;
 }
 
-export const StartScreen: React.FC<StartScreenProps> = ({ onStart, onOpenOptions }) => {
+export const StartScreen: React.FC<StartScreenProps> = ({
+  onStart,
+  onOpenOptions,
+  onOpenProfile,
+}) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
       <div className="w-20 h-20 rounded-3xl bg-brand-blue/10 text-brand-blue flex items-center justify-center text-4xl mb-6 shadow-inner">
@@ -27,6 +32,15 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStart, onOpenOptions
         >
           <Play className="w-5 h-5 fill-current" />
           <span>开始训练</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 font-semibold py-3 px-6 rounded-2xl transition-all text-sm"
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>训练档案</span>
         </button>
 
         <button

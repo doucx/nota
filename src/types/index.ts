@@ -42,3 +42,33 @@ export interface TrainerOptions {
   errorDelay: number; // 出错等待时间（毫秒，0 ~ 2000）
   ranges: Record<ClefType, [number, number]>; // 各谱表自定义音域 [minStep, maxStep]
 }
+
+export type LearningState = 'new' | 'learning' | 'review' | 'lapsed';
+
+export interface NoteStats {
+  clef: ClefType;
+  step: number;
+  accidental: '♯' | '♭' | null;
+  attempts: number;
+  correct: number;
+  reactionTimes: number[];
+  lastSeenAt: number;
+  state: LearningState;
+  intervalDays: number;
+  nextDueAt: number;
+  learningStreak: number;
+}
+
+export interface SessionRecord {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  settingsSnapshot: TrainerOptions;
+  attempts: number;
+  correct: number;
+}
+
+export interface AppMeta {
+  schemaVersion: number;
+  options?: TrainerOptions;
+}

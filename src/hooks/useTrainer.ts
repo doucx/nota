@@ -1,16 +1,18 @@
 import { soundEngine } from '@/audio/synth';
 import { CLEF_CONFIGS } from '@/constants/clefs';
 import { KEYBOARD_MAP } from '@/constants/keys';
-import { STEP_TO_PC } from '@/constants/notation';
+import { addSession, getAllNoteStats, putNoteStatsBatch } from '@/db/storage';
 import type {
   AccidentalMode,
-  ClefType,
   GhostNoteItem,
   KeyFeedback,
   NoteItem,
+  NoteStats,
+  SessionRecord,
   TrainerOptions,
 } from '@/types';
 import { getClosestStepForPc } from '@/utils/pitch';
+import { buildCandidates, noteKey, pickWeighted, updateStats } from '@/utils/scheduler';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useTrainer(
@@ -25,6 +27,7 @@ export function useTrainer(
   const [deviationText, setDeviationText] = useState<string>('');
   const [accidentalMode, setAccidentalMode] = useState<AccidentalMode>('sharp');
   const [score, setScore] = useState<number>(0);
+  const [wrongCount, setWrongCount] = useState<number>(0);
   const [attempts, setAttempts] = useState<number>(0);
   const [timeLeft, setTimeLeft] = useState<number>(options.duration);
   const [isLocked, setIsLocked] = useState<boolean>(false);
@@ -32,10 +35,25 @@ export function useTrainer(
   const timerRef = useRef<number | null>(null);
   const delayTimerRef = useRef<number | null>(null);
   const onFinishSessionRef = useRef(onFinishSession);
+  const optionsRef = useRef(options);
+  const shownAtRef = useRef<number>(0);
+  const statsCacheRef = useRef<Record<string, NoteStats>>({});
+  const pendingFlushRef = useRef<Record<string, NoteStats>>({});
+  const dirtyCountRef = useRef<number>(0);
+  const sessionRef = useRef<{
+    id: string;
+    startedAt: number;
+    attempts: number;
+    correct: number;
+  } | null>(null);
 
   useEffect(() => {
     onFinishSessionRef.current = onFinishSession;
   }, [onFinishSession]);
+
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   const stopTimers = useCallback(() => {
     if (timerRef.current !== null) {
@@ -48,7 +66,36 @@ export function useTrainer(
     }
   }, []);
 
-  // 生成下一题
+  const flushStats = useCallback(() => {
+    const pending = pendingFlushRef.current;
+    const keys = Object.keys(pending);
+    if (keys.length === 0) {
+      dirtyCountRef.current = 0;
+      return;
+    }
+    pendingFlushRef.current = {};
+    dirtyCountRef.current = 0;
+    putNoteStatsBatch(pending).catch(() => {});
+  }, []);
+
+  const finalizeSession = useCallback(() => {
+    flushStats();
+    const s = sessionRef.current;
+    if (s && s.attempts > 0) {
+      const record: SessionRecord = {
+        id: s.id,
+        startedAt: s.startedAt,
+        endedAt: Date.now(),
+        settingsSnapshot: optionsRef.current,
+        attempts: s.attempts,
+        correct: s.correct,
+      };
+      addSession(record).catch(() => {});
+    }
+    sessionRef.current = null;
+  }, [flushStats]);
+
+  // 依据加权策略生成下一题
   const generateQuestion = useCallback(() => {
     setIsLocked(false);
     setIsSuccess(false);
@@ -56,104 +103,49 @@ export function useTrainer(
     setKeyFeedback(null);
     setDeviationText('');
 
-    const activeClefs: ClefType[] = options.clefs.length > 0 ? options.clefs : ['treble'];
-    const chosenClefName = activeClefs[Math.floor(Math.random() * activeClefs.length)];
-    const clef = CLEF_CONFIGS[chosenClefName];
-
-    // 优先采用用户自定义的音域范围，若未定义则回退到谱表配置的默认范围
-    const configuredRange = options.ranges?.[chosenClefName];
-    const [min, max] = configuredRange ?? clef.range;
-    let step = 0;
-    let pc = 0;
-    let accidental: '♯' | '♭' | null = null;
-    let nextAccMode: AccidentalMode = 'sharp';
-
-    if (options.accidentalsOnly) {
-      // 纯黑键模式：收集音域内所有合法的黑键候选组合
-      interface BlackKeyItem {
-        step: number;
-        pc: number;
-        accidental: '♯' | '♭';
-        mode: AccidentalMode;
-      }
-      const candidates: BlackKeyItem[] = [];
-
-      for (let s = min; s <= max; s++) {
-        const dIdx = ((s % 7) + 7) % 7;
-        const natPc = STEP_TO_PC[dIdx];
-
-        // 升号黑键 (C, D, F, G, A)
-        if ([0, 1, 3, 4, 5].includes(dIdx)) {
-          candidates.push({
-            step: s,
-            pc: (natPc + 1) % 12,
-            accidental: '♯',
-            mode: 'sharp',
-          });
-        }
-        // 降号黑键 (D, E, G, A, B)
-        if ([1, 2, 4, 5, 6].includes(dIdx)) {
-          candidates.push({
-            step: s,
-            pc: (natPc + 11) % 12,
-            accidental: '♭',
-            mode: 'flat',
-          });
-        }
-      }
-
-      const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-      step = chosen.step;
-      pc = chosen.pc;
-      accidental = chosen.accidental;
-      nextAccMode = chosen.mode;
-    } else {
-      step = Math.floor(Math.random() * (max - min + 1)) + min;
-      const diatonicIndex = ((step % 7) + 7) % 7;
-      const naturalPc = STEP_TO_PC[diatonicIndex];
-      pc = naturalPc;
-
-      if (options.allowAccidentals && Math.random() < 0.4) {
-        const useSharp = Math.random() < 0.5;
-        if (useSharp) {
-          const sharpable = [0, 1, 3, 4, 5]; // C, D, F, G, A
-          if (sharpable.includes(diatonicIndex)) {
-            accidental = '♯';
-            pc = (naturalPc + 1) % 12;
-            nextAccMode = 'sharp';
-          }
-        } else {
-          const flatable = [1, 2, 4, 5, 6]; // D, E, G, A, B
-          if (flatable.includes(diatonicIndex)) {
-            accidental = '♭';
-            pc = (naturalPc + 11) % 12;
-            nextAccMode = 'flat';
-          }
-        }
-      }
+    const candidates = buildCandidates(options);
+    if (candidates.length === 0) {
+      setCurrentNote(null);
+      return;
     }
 
-    setAccidentalMode(nextAccMode);
-    const octave = 4 + Math.floor(step / 7);
-    const midiPitch = 12 * (octave + 1) + pc;
+    const now = Date.now();
+    const chosen = pickWeighted(candidates, statsCacheRef.current, now);
+    const clefConfig = CLEF_CONFIGS[chosen.clef];
+    const octave = 4 + Math.floor(chosen.step / 7);
+    const midiPitch = 12 * (octave + 1) + chosen.pc;
 
+    setAccidentalMode(chosen.accidental === '♭' ? 'flat' : 'sharp');
     setCurrentNote({
-      clef,
-      step,
-      pc,
-      accidental,
+      clef: clefConfig,
+      step: chosen.step,
+      pc: chosen.pc,
+      accidental: chosen.accidental,
       midiPitch,
     });
-  }, [options.clefs, options.ranges, options.allowAccidentals, options.accidentalsOnly]);
+    // 计时起点置于音符真正展示的瞬间（避免确认动画污染）
+    shownAtRef.current = performance.now();
+  }, [options]);
 
-  // 重置训练场
+  // 重置训练场：结算上一会话并开启新会话
   const resetTrainer = useCallback(() => {
+    finalizeSession();
     stopTimers();
     setScore(0);
+    setWrongCount(0);
     setAttempts(0);
     setTimeLeft(options.duration);
     setIsSuccess(false);
     setKeyFeedback(null);
+    setGhostNote(null);
+    setDeviationText('');
+
+    sessionRef.current = {
+      id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      startedAt: Date.now(),
+      attempts: 0,
+      correct: 0,
+    };
     generateQuestion();
 
     if (options.duration > 0) {
@@ -161,6 +153,7 @@ export function useTrainer(
         setTimeLeft((prev) => {
           if (prev <= 1) {
             stopTimers();
+            finalizeSession();
             onFinishSessionRef.current();
             return 0;
           }
@@ -168,39 +161,85 @@ export function useTrainer(
         });
       }, 1000);
     }
-  }, [options.duration, generateQuestion, stopTimers]);
+  }, [options.duration, generateQuestion, stopTimers, finalizeSession]);
 
-  // 根据 isActive 启动或中止计时器
+  // 依据 isActive 启停，并在启动前加载统计缓存
   useEffect(() => {
-    if (isActive) {
-      resetTrainer();
-    } else {
+    if (!isActive) {
       stopTimers();
+      finalizeSession();
+      return;
     }
+
+    let alive = true;
+    (async () => {
+      try {
+        const all = await getAllNoteStats();
+        if (!alive) return;
+        statsCacheRef.current = all;
+      } catch {
+        if (!alive) return;
+        statsCacheRef.current = {};
+      }
+      resetTrainer();
+    })();
+
     return () => {
+      alive = false;
       stopTimers();
     };
-  }, [isActive, resetTrainer, stopTimers]);
+  }, [isActive, resetTrainer, stopTimers, finalizeSession]);
 
-  // 答题处理
   const handleInput = useCallback(
     (pressedPc: number) => {
       if (!isActive || isLocked || !currentNote) return;
 
-      setAttempts((a) => a + 1);
-      const isCorrect = pressedPc === currentNote.pc;
+      const reactionTime = performance.now() - shownAtRef.current;
+      // 防抖：排除前意识滑按
+      if (reactionTime < 150) return;
 
+      const isCorrect = pressedPc === currentNote.pc;
+      setAttempts((a) => a + 1);
       if (isCorrect) {
         setScore((s) => s + 1);
+      } else {
+        setWrongCount((w) => w + 1);
+      }
+
+      // 更新音符级统计
+      const key = noteKey(currentNote.clef.name, currentNote.step, currentNote.accidental);
+      const prevStats = statsCacheRef.current[key];
+      const nextStats = updateStats(
+        prevStats,
+        {
+          clef: currentNote.clef.name,
+          step: currentNote.step,
+          accidental: currentNote.accidental,
+        },
+        isCorrect,
+        reactionTime,
+        Date.now(),
+      );
+      statsCacheRef.current[key] = nextStats;
+      pendingFlushRef.current[key] = nextStats;
+      dirtyCountRef.current += 1;
+      if (dirtyCountRef.current >= 10) {
+        flushStats();
+      }
+
+      if (sessionRef.current) {
+        sessionRef.current.attempts += 1;
+        if (isCorrect) {
+          sessionRef.current.correct += 1;
+        }
+      }
+
+      if (isCorrect) {
         soundEngine.playPitch(currentNote.midiPitch, options.sound);
         setIsLocked(true);
         setIsSuccess(true);
-        setKeyFeedback({
-          correctPc: currentNote.pc,
-          wrongPc: null,
-        });
+        setKeyFeedback({ correctPc: currentNote.pc, wrongPc: null });
 
-        // 答对时给 180ms 的绿色视觉确认反馈后切入下一题
         delayTimerRef.current = window.setTimeout(() => {
           generateQuestion();
         }, 180);
@@ -213,18 +252,11 @@ export function useTrainer(
         const userMidi = 12 * (userOctave + 1) + pressedPc;
         soundEngine.playPitch(userMidi, options.sound);
 
-        const isAccidental = [1, 3, 6, 8, 10].includes(pressedPc);
-        const errorAccidental = isAccidental ? (accidentalMode === 'sharp' ? '♯' : '♭') : null;
+        const isAccidentalNote = [1, 3, 6, 8, 10].includes(pressedPc);
+        const errorAccidental = isAccidentalNote ? (accidentalMode === 'sharp' ? '♯' : '♭') : null;
 
-        setGhostNote({
-          step: userStep,
-          accidental: errorAccidental,
-        });
-
-        setKeyFeedback({
-          correctPc: currentNote.pc,
-          wrongPc: pressedPc,
-        });
+        setGhostNote({ step: userStep, accidental: errorAccidental });
+        setKeyFeedback({ correctPc: currentNote.pc, wrongPc: pressedPc });
 
         const diff = userStep - currentNote.step;
         if (diff > 0) {
@@ -235,7 +267,6 @@ export function useTrainer(
           setDeviationText('音位正确，但升降半音有误');
         }
 
-        // 依据配置的 errorDelay 进行等待后切换下一题
         const waitTime = options.errorDelay !== undefined ? options.errorDelay : 500;
         delayTimerRef.current = window.setTimeout(() => {
           generateQuestion();
@@ -250,6 +281,7 @@ export function useTrainer(
       options.errorDelay,
       accidentalMode,
       generateQuestion,
+      flushStats,
     ],
   );
 
@@ -275,6 +307,7 @@ export function useTrainer(
     deviationText,
     accidentalMode,
     score,
+    wrongCount,
     attempts,
     timeLeft,
     handleInput,
