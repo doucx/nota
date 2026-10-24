@@ -1,6 +1,7 @@
 import { soundEngine } from '@/audio/synth';
 import { CLEF_CONFIGS } from '@/constants/clefs';
 import { KEYBOARD_MAP } from '@/constants/keys';
+import { STEP_TO_PC } from '@/constants/notation';
 import { addSession, getAllNoteStats, putNoteStatsBatch } from '@/db/storage';
 import type {
   AccidentalMode,
@@ -8,10 +9,11 @@ import type {
   KeyFeedback,
   NoteItem,
   NoteStats,
+  SandboxNoteSpec,
   SessionRecord,
   TrainerOptions,
 } from '@/types';
-import { getClosestStepForPc } from '@/utils/pitch';
+import { resolvePressedPlacement } from '@/utils/pitch';
 import { buildCandidates, noteKey, pickWeighted, updateStats } from '@/utils/scheduler';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -19,6 +21,8 @@ export function useTrainer(
   options: TrainerOptions,
   isActive: boolean,
   onFinishSession: () => void,
+  sandboxEnabled = false,
+  sandboxPinnedNote: SandboxNoteSpec | null = null,
 ) {
   const [currentNote, setCurrentNote] = useState<NoteItem | null>(null);
   const [ghostNote, setGhostNote] = useState<GhostNoteItem | null>(null);
@@ -79,6 +83,13 @@ export function useTrainer(
   }, []);
 
   const finalizeSession = useCallback(() => {
+    // 沙盒模式不产生任何持久化副作用
+    if (sandboxEnabled) {
+      sessionRef.current = null;
+      pendingFlushRef.current = {};
+      dirtyCountRef.current = 0;
+      return;
+    }
     flushStats();
     const s = sessionRef.current;
     if (s && s.attempts > 0) {
@@ -93,15 +104,40 @@ export function useTrainer(
       addSession(record).catch(() => {});
     }
     sessionRef.current = null;
-  }, [flushStats]);
+  }, [flushStats, sandboxEnabled]);
 
-  // 依据加权策略生成下一题
+  // 依据加权策略生成下一题（沙盒模式下可强制指定固定音符）
   const generateQuestion = useCallback(() => {
     setIsLocked(false);
     setIsSuccess(false);
     setGhostNote(null);
     setKeyFeedback(null);
     setDeviationText('');
+
+    if (sandboxEnabled && sandboxPinnedNote) {
+      const clefConfig = CLEF_CONFIGS[sandboxPinnedNote.clef];
+      const dIdx = ((sandboxPinnedNote.step % 7) + 7) % 7;
+      const natPc = STEP_TO_PC[dIdx];
+      let pc = natPc;
+      if (sandboxPinnedNote.accidental === '♯') {
+        pc = (natPc + 1) % 12;
+      } else if (sandboxPinnedNote.accidental === '♭') {
+        pc = (natPc + 11) % 12;
+      }
+      const octave = 4 + Math.floor(sandboxPinnedNote.step / 7);
+      const midiPitch = 12 * (octave + 1) + pc;
+
+      setAccidentalMode(sandboxPinnedNote.accidental === '♭' ? 'flat' : 'sharp');
+      setCurrentNote({
+        clef: clefConfig,
+        step: sandboxPinnedNote.step,
+        pc,
+        accidental: sandboxPinnedNote.accidental,
+        midiPitch,
+      });
+      shownAtRef.current = performance.now();
+      return;
+    }
 
     const candidates = buildCandidates(options);
     if (candidates.length === 0) {
@@ -125,7 +161,7 @@ export function useTrainer(
     });
     // 计时起点置于音符真正展示的瞬间（避免确认动画污染）
     shownAtRef.current = performance.now();
-  }, [options]);
+  }, [options, sandboxEnabled, sandboxPinnedNote]);
 
   // 重置训练场：结算上一会话并开启新会话
   const resetTrainer = useCallback(() => {
@@ -171,6 +207,17 @@ export function useTrainer(
       return;
     }
 
+    if (sandboxEnabled) {
+      // 沙盒模式：不读取历史统计，也不写回任何数据
+      statsCacheRef.current = {};
+      resetTrainer();
+      return () => {
+        stopTimers();
+        // 退出沙盒时清空会话残留，避免切换到正常训练时被意外提交
+        sessionRef.current = null;
+      };
+    }
+
     let alive = true;
     (async () => {
       try {
@@ -188,7 +235,7 @@ export function useTrainer(
       alive = false;
       stopTimers();
     };
-  }, [isActive, resetTrainer, stopTimers, finalizeSession]);
+  }, [isActive, sandboxEnabled, resetTrainer, stopTimers, finalizeSession]);
 
   const handleInput = useCallback(
     (pressedPc: number) => {
@@ -206,31 +253,33 @@ export function useTrainer(
         setWrongCount((w) => w + 1);
       }
 
-      // 更新音符级统计
-      const key = noteKey(currentNote.clef.name, currentNote.step, currentNote.accidental);
-      const prevStats = statsCacheRef.current[key];
-      const nextStats = updateStats(
-        prevStats,
-        {
-          clef: currentNote.clef.name,
-          step: currentNote.step,
-          accidental: currentNote.accidental,
-        },
-        isCorrect,
-        reactionTime,
-        Date.now(),
-      );
-      statsCacheRef.current[key] = nextStats;
-      pendingFlushRef.current[key] = nextStats;
-      dirtyCountRef.current += 1;
-      if (dirtyCountRef.current >= 10) {
-        flushStats();
-      }
+      // 更新音符级统计（沙盒模式跳过所有持久化）
+      if (!sandboxEnabled) {
+        const key = noteKey(currentNote.clef.name, currentNote.step, currentNote.accidental);
+        const prevStats = statsCacheRef.current[key];
+        const nextStats = updateStats(
+          prevStats,
+          {
+            clef: currentNote.clef.name,
+            step: currentNote.step,
+            accidental: currentNote.accidental,
+          },
+          isCorrect,
+          reactionTime,
+          Date.now(),
+        );
+        statsCacheRef.current[key] = nextStats;
+        pendingFlushRef.current[key] = nextStats;
+        dirtyCountRef.current += 1;
+        if (dirtyCountRef.current >= 10) {
+          flushStats();
+        }
 
-      if (sessionRef.current) {
-        sessionRef.current.attempts += 1;
-        if (isCorrect) {
-          sessionRef.current.correct += 1;
+        if (sessionRef.current) {
+          sessionRef.current.attempts += 1;
+          if (isCorrect) {
+            sessionRef.current.correct += 1;
+          }
         }
       }
 
@@ -247,24 +296,36 @@ export function useTrainer(
         setIsLocked(true);
         soundEngine.playError(options.sound);
 
-        const userStep = getClosestStepForPc(currentNote.step, pressedPc);
-        const userOctave = 4 + Math.floor(userStep / 7);
+        const placement = resolvePressedPlacement(currentNote.step, pressedPc);
+        const userOctave = 4 + Math.floor(placement.step / 7);
         const userMidi = 12 * (userOctave + 1) + pressedPc;
         soundEngine.playPitch(userMidi, options.sound);
 
-        const isAccidentalNote = [1, 3, 6, 8, 10].includes(pressedPc);
-        const errorAccidental = isAccidentalNote ? (accidentalMode === 'sharp' ? '♯' : '♭') : null;
-
-        setGhostNote({ step: userStep, accidental: errorAccidental });
+        setGhostNote({ step: placement.step, accidental: placement.accidental });
         setKeyFeedback({ correctPc: currentNote.pc, wrongPc: pressedPc });
 
-        const diff = userStep - currentNote.step;
-        if (diff > 0) {
-          setDeviationText(`偏高 ${Math.abs(diff)} 度 (红色为您所按)`);
-        } else if (diff < 0) {
-          setDeviationText(`偏低 ${Math.abs(diff)} 度 (红色为您所按)`);
-        } else {
+        const isBlackKey = [1, 3, 6, 8, 10].includes(pressedPc);
+        const semitoneDiff = (pressedPc - currentNote.pc + 12) % 12;
+
+        if (semitoneDiff === 1) {
+          setDeviationText('高了半音 (红色为您所按)');
+        } else if (semitoneDiff === 11) {
+          setDeviationText('低了半音 (红色为您所按)');
+        } else if (
+          placement.step === currentNote.step &&
+          pressedPc !== currentNote.pc &&
+          isBlackKey
+        ) {
           setDeviationText('音位正确，但升降半音有误');
+        } else {
+          const diff = placement.step - currentNote.step;
+          if (diff > 0) {
+            setDeviationText(`偏高 ${Math.abs(diff)} 个音级 (红色为您所按)`);
+          } else if (diff < 0) {
+            setDeviationText(`偏低 ${Math.abs(diff)} 个音级 (红色为您所按)`);
+          } else {
+            setDeviationText('音位正确，但音高有误');
+          }
         }
 
         const waitTime = options.errorDelay !== undefined ? options.errorDelay : 500;
@@ -279,9 +340,9 @@ export function useTrainer(
       currentNote,
       options.sound,
       options.errorDelay,
-      accidentalMode,
       generateQuestion,
       flushStats,
+      sandboxEnabled,
     ],
   );
 

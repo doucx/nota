@@ -28,24 +28,47 @@ export function getStaffY(clef: ClefConfig, step: number): number {
   return 98 - (step - clef.baseStep) * 8;
 }
 
+export interface PressedPlacement {
+  step: number;
+  accidental: '♯' | '♭' | null;
+}
+
 /**
- * 寻找最邻近目标 diatonic step 且 Pitch Class 匹配的五线谱线/间位置
+ * 将用户实际按下的 Pitch Class 映射回最邻近的五线谱位置。
+ * - 白键（自然音）：取最近的同名自然音位置，不会吸收到相邻半音。
+ * - 黑键（升降音）：取最近的升/降拼写位置，并给出对应升降记号。
+ * 这样 Mi→Fa、Ti→Do 等半音邻居不会因拼法相同而被误判为「音位正确」。
  */
-export function getClosestStepForPc(targetStep: number, pc: number): number {
+export function resolvePressedPlacement(targetStep: number, pressedPc: number): PressedPlacement {
+  const isBlackKey = [1, 3, 6, 8, 10].includes(pressedPc);
   let bestStep = targetStep;
-  let minDiff = 999;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  let bestAccidental: '♯' | '♭' | null = null;
 
   for (let s = targetStep - 7; s <= targetStep + 7; s++) {
     const dIdx = ((s % 7) + 7) % 7;
     const natPc = STEP_TO_PC[dIdx];
-    if (natPc === pc || (natPc + 1) % 12 === pc || (natPc + 11) % 12 === pc) {
-      const diff = Math.abs(s - targetStep);
-      if (diff < minDiff) {
-        minDiff = diff;
-        bestStep = s;
+    let accidental: '♯' | '♭' | null = null;
+
+    if (isBlackKey) {
+      if ((natPc + 1) % 12 === pressedPc) {
+        accidental = '♯';
+      } else if ((natPc + 11) % 12 === pressedPc) {
+        accidental = '♭';
+      } else {
+        continue;
       }
+    } else if (natPc !== pressedPc) {
+      continue;
+    }
+
+    const diff = Math.abs(s - targetStep);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestStep = s;
+      bestAccidental = accidental;
     }
   }
 
-  return bestStep;
+  return { step: bestStep, accidental: bestAccidental };
 }

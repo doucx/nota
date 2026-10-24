@@ -68,6 +68,12 @@ export interface SessionRecord {
   correct: number;
 }
 
+export interface SandboxNoteSpec {
+  clef: ClefType;
+  step: number;
+  accidental: '♯' | '♭' | null;
+}
+
 export interface AppMeta {
   schemaVersion: number;
   options?: TrainerOptions;

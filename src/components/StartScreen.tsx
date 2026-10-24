@@ -1,16 +1,18 @@
-import { BarChart3, Play, Settings } from 'lucide-react';
+import { BarChart3, Bug, Play, Settings } from 'lucide-react';
 import type React from 'react';
 
 interface StartScreenProps {
   onStart: () => void;
   onOpenOptions: () => void;
   onOpenProfile: () => void;
+  onStartSandbox: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
   onStart,
   onOpenOptions,
   onOpenProfile,
+  onStartSandbox,
 }) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
@@ -50,6 +52,15 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         >
           <Settings className="w-4 h-4" />
           <span>训练设置</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onStartSandbox}
+          className="flex items-center justify-center gap-2 bg-violet-50 hover:bg-violet-100 active:bg-violet-200 text-violet-700 font-semibold py-3 px-6 rounded-2xl transition-all text-sm"
+        >
+          <Bug className="w-4 h-4" />
+          <span>调试沙盒</span>
         </button>
       </div>
     </div>

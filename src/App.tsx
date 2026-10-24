@@ -2,6 +2,7 @@ import { Header } from '@/components/Header';
 import { Keyboard } from '@/components/Keyboard';
 import { OptionsModal } from '@/components/OptionsModal';
 import { ProfileModal } from '@/components/ProfileModal';
+import { SandboxModal } from '@/components/SandboxModal';
 import { StaffView } from '@/components/StaffView';
 import { StartScreen } from '@/components/StartScreen';
 import { StatsBar } from '@/components/StatsBar';
@@ -9,11 +10,18 @@ import { SummaryModal } from '@/components/SummaryModal';
 import { DEFAULT_OPTIONS, loadSavedOptions, saveOptions } from '@/constants/options';
 import { initStorage } from '@/db/storage';
 import { useTrainer } from '@/hooks/useTrainer';
-import type { TrainerOptions } from '@/types';
+import type { SandboxNoteSpec, TrainerOptions } from '@/types';
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
 type ScreenMode = 'start' | 'training';
+
+// 沙盒专用选项：不限时、覆盖全部谱号，且不持久化
+const SANDBOX_OPTIONS: TrainerOptions = {
+  ...DEFAULT_OPTIONS,
+  clefs: ['treble', 'bass', 'alto'],
+  duration: 0,
+};
 
 export const App: React.FC = () => {
   const [screenMode, setScreenMode] = useState<ScreenMode>('start');
@@ -21,6 +29,10 @@ export const App: React.FC = () => {
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const [isSandbox, setIsSandbox] = useState(false);
+  const [isSandboxModalOpen, setIsSandboxModalOpen] = useState(false);
+  const [sandboxPinnedNote, setSandboxPinnedNote] = useState<SandboxNoteSpec | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -45,7 +57,13 @@ export const App: React.FC = () => {
   }, []);
 
   const isTrainingActive =
-    screenMode === 'training' && !isOptionsOpen && !isSummaryOpen && !isProfileOpen;
+    screenMode === 'training' &&
+    !isOptionsOpen &&
+    !isSummaryOpen &&
+    !isProfileOpen &&
+    !isSandboxModalOpen;
+
+  const activeOptions = isSandbox ? SANDBOX_OPTIONS : options;
 
   const {
     currentNote,
@@ -60,16 +78,31 @@ export const App: React.FC = () => {
     timeLeft,
     handleInput,
     resetTrainer,
-  } = useTrainer(options, isTrainingActive, handleFinishSession);
+  } = useTrainer(
+    activeOptions,
+    isTrainingActive,
+    handleFinishSession,
+    isSandbox,
+    isSandbox ? sandboxPinnedNote : null,
+  );
 
   const handleStartTraining = () => {
+    setIsSandbox(false);
+    setScreenMode('training');
+  };
+
+  const handleStartSandbox = () => {
+    setIsSandbox(true);
+    setSandboxPinnedNote(null);
     setScreenMode('training');
   };
 
   const handleBackToStart = () => {
     setScreenMode('start');
+    setIsSandbox(false);
     setIsSummaryOpen(false);
     setIsProfileOpen(false);
+    setIsSandboxModalOpen(false);
   };
 
   const handleRestart = () => {
@@ -87,22 +120,31 @@ export const App: React.FC = () => {
     saveOptions(DEFAULT_OPTIONS).catch(() => {});
   };
 
+  const handleSandboxNoteChange = (note: SandboxNoteSpec | null) => {
+    setSandboxPinnedNote(note);
+  };
+
   return (
     <div className="w-full h-full flex items-center justify-center p-2 sm:p-4">
       <main className="w-full max-w-4xl h-full max-h-[920px] bg-white rounded-2xl shadow-2xl flex flex-col relative overflow-hidden">
-        <Header onBack={screenMode === 'training' ? handleBackToStart : undefined} />
+        <Header
+          onBack={screenMode === 'training' ? handleBackToStart : undefined}
+          onSandbox={isSandbox ? () => setIsSandboxModalOpen(true) : undefined}
+          title={isSandbox ? '沙盒调试' : undefined}
+        />
 
         {screenMode === 'start' ? (
           <StartScreen
             onStart={handleStartTraining}
             onOpenOptions={() => setIsOptionsOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
+            onStartSandbox={handleStartSandbox}
           />
         ) : (
           <>
             <StatsBar
               timeLeft={timeLeft}
-              duration={options.duration}
+              duration={activeOptions.duration}
               correct={score}
               wrong={wrongCount}
             />
@@ -115,9 +157,9 @@ export const App: React.FC = () => {
             />
 
             <Keyboard
-              naming={options.naming}
+              naming={activeOptions.naming}
               accidentalMode={accidentalMode}
-              allowAccidentals={options.allowAccidentals}
+              allowAccidentals={activeOptions.allowAccidentals}
               keyFeedback={keyFeedback}
               onPress={handleInput}
             />
@@ -132,13 +174,20 @@ export const App: React.FC = () => {
           onClose={() => setIsOptionsOpen(false)}
         />
 
+        <SandboxModal
+          isOpen={isSandboxModalOpen}
+          pinnedNote={sandboxPinnedNote}
+          onChange={handleSandboxNoteChange}
+          onClose={() => setIsSandboxModalOpen(false)}
+        />
+
         <SummaryModal
           isOpen={isSummaryOpen}
           correct={score}
           attempts={attempts}
           onRestart={handleRestart}
           onGoHome={handleBackToStart}
-          onOpenProfile={() => setIsProfileOpen(true)}
+          onOpenProfile={isSandbox ? undefined : () => setIsProfileOpen(true)}
         />
 
         <ProfileModal
